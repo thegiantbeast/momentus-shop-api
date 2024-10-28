@@ -1,20 +1,24 @@
-import { buffer } from 'micro'
-import nodemailer from 'nodemailer'
-import { createAdminApiClient } from '@shopify/admin-api-client'
-import * as emailTemplates from '../../email-templates'
+import { buffer } from "micro";
+import nodemailer from "nodemailer";
+import { createAdminApiClient } from "@shopify/admin-api-client";
+import * as emailTemplates from "../../email-templates";
 
-const isDebug = process.env.APP_MODE !== 'production'
-const fromEmail = '"Momentus Shop" <info@momentus.shop>'
-const toEmail = isDebug ? 'ricardo.ferreira@wizardformula.pt' : 'info@momentus.shop'
+const isDebug = process.env.APP_MODE !== "production";
+const fromEmail = '"Momentus Shop" <info@momentus.shop>';
+const toEmail = isDebug
+    ? "ricardo.ferreira@wizardformula.pt"
+    : "info@momentus.shop";
 
-const [storeDomain, accessToken] = process.env.SHOPIFY_AUTH.split(':')
+const [storeDomain, accessToken] = process.env.SHOPIFY_AUTH.split(":");
 const client = createAdminApiClient({
-  apiVersion: '2024-01',
-  storeDomain,
-  accessToken
-})
+    apiVersion: "2024-01",
+    storeDomain,
+    accessToken,
+});
 
-const transport = nodemailer.createTransport(JSON.parse(process.env.SMTP_CONNECTION))
+const transport = nodemailer.createTransport(
+    JSON.parse(process.env.SMTP_CONNECTION)
+);
 
 function getShortFileName(filename) {
     const parts = filename.split("/").pop().replace(".png", "").split("-");
@@ -28,94 +32,46 @@ function countImageUrls(note_attributes) {
     );
 }
 
-export default async (req, res) => {
-    const body = (await buffer(req)).toString();
-    const {
-        admin_graphql_api_id: order_gid,
-        contact_email,
-        name: order_number,
-        line_items,
-        note_attributes,
-        tags,
-        customer_locale,
-        financial_status,
-    } = JSON.parse(body);
-    const lang = customer_locale === "pt-PT" ? "pt" : "en";
-    const currentTags = tags.split(", ");
-
-    if (order_number == "#1211") {
-        console.log("#1211 received, returning 200 OK");
-        return res.status(200).send("Ok");
-    }
-
-    console.log(`Order Update hook for ${order_number}`);
-
-    // add notification and timer (now + 15min) tags when is paid but no file attached
-    if (
-        countImageUrls(note_attributes) === 0 &&
-        financial_status === "paid" &&
-        !currentTags.includes("notification")
-    ) {
-        const timeout = 15 * 60 * 10000;
-        const timer = new Date().getTime() + timeout;
-        const nextTags = [...currentTags, "notification", `timer:${timer}`];
-        const orderUpdate = `
-          mutation OrderUpdate($input: OrderInput!) {
-            orderUpdate(input: $input) {
-              userErrors {
-                field
-                message
-              }
-            }
+async function addNotificationTimer(order_gid, currentTags) {
+    const timeout = 15 * 60 * 1000;
+    const timer = new Date().getTime() + timeout;
+    const nextTags = [...currentTags, "notification", `timer:${timer}`];
+    const orderUpdate = `
+      mutation OrderUpdate($input: OrderInput!) {
+        orderUpdate(input: $input) {
+          userErrors {
+            field
+            message
           }
-        `;
-        const { data, errors } = await client.request(orderUpdate, {
-            variables: {
-                input: {
-                    id: order_gid,
-                    tags: nextTags,
-                },
-            },
-        });
-
-        if (errors) {
-            await transport.sendMail({
-                from: fromEmail,
-                to: toEmail,
-                subject: `[ALERTA] Order ${order_number}: Falhou ao definir notificação`,
-                text: JSON.stringify({ data, errors }, null, " "),
-            });
         }
-    }
+      }
+    `;
+    const { data, errors } = await client.request(orderUpdate, {
+        variables: {
+            input: {
+                id: order_gid,
+                tags: nextTags,
+            },
+        },
+    });
 
-    // nothing to process when:
-    // - no attachment
-    // - email already sent
-    // - not yet paid
-    if (
-        countImageUrls(note_attributes) === 0 ||
-        currentTags.includes("Entregue") ||
-        financial_status !== "paid"
-    ) {
-        return res.status(200).send("Ok");
+    if (errors) {
+        await transport.sendMail({
+            from: fromEmail,
+            to: toEmail,
+            subject: `[ALERTA] Order ${order_number}: Falhou ao definir notificação`,
+            text: JSON.stringify({ data, errors }, null, " "),
+        });
     }
+}
 
+async function sendEmailsToClient(note_attributes, currentTags, nextTags) {
+    const lang = customer_locale === "pt-PT" ? "pt" : "en";
     const to = isDebug ? toEmail : contact_email;
     const bcc = !isDebug ? toEmail : undefined;
     const subject = `${emailTemplates[lang].subject} ${order_number} ${
         isDebug ? `(to: ${contact_email})` : ""
     }`.trimEnd();
-    const totalOrderCount = line_items.reduce(
-        (acc, line) => acc + line.quantity,
-        0
-    );
-    const hasMissingFiles = countImageUrls(note_attributes) < totalOrderCount;
-    let nextTags = [];
-
-    console.log(line_items, note_attributes);
-    console.log(
-        `Send "${order_number}" email to "${contact_email}" (locale: "${customer_locale}" :: tags: "${tags}" :: hasMissingFiles: "${hasMissingFiles}") with "${note_attributes?.[0]?.value}"`
-    );
 
     for (const [index, img] of note_attributes.entries()) {
         if (!img.value) {
@@ -161,7 +117,7 @@ export default async (req, res) => {
             await transport.sendMail({
                 from: fromEmail,
                 to: toEmail,
-                subject: `[ALERTA] Order ${order_number}: Houve um erro no envio do email`,
+                subject: `[ALERTA] Order ${order_number}: Houve um erro no envio do email (${img.name})`,
             });
 
             return res.status(200).send("Ok");
@@ -170,61 +126,128 @@ export default async (req, res) => {
         // update `nextTags` to add the file sent in order to be skipped next time
         nextTags.push(`sent:img:${imgName}`);
 
-        console.log(`Email sent: ${email.messageId}`);
+        console.log(`Email sent: ${email.messageId} (${img.name})`);
+    }
+}
+
+export default async (req, res) => {
+    const body = (await buffer(req)).toString();
+    const {
+        admin_graphql_api_id: order_gid,
+        contact_email,
+        name: order_number,
+        line_items,
+        note_attributes,
+        tags,
+        customer_locale,
+        financial_status,
+    } = JSON.parse(body);
+    const currentTags = tags.split(", ");
+    const totalOrderCount = line_items.reduce(
+        (acc, line) => acc + line.quantity,
+        0
+    );
+    const hasMissingFiles = countImageUrls(note_attributes) < totalOrderCount;
+    let nextTags = [];
+
+    console.log(`Order Update hook for ${order_number}`);
+
+    // add notification and timer (now + 15min) tags when is paid but no file attached
+    if (
+        !currentTags.includes("notification") &&
+        financial_status === "paid" &&
+        countImageUrls(note_attributes) === 0
+    ) {
+        console.log("[start] adding notification timer");
+        await addNotificationTimer(order_gid, currentTags);
+        console.log("[end] adding notification timer");
+
+        return res.status(200).send("Ok");
     }
 
-    const getOrderOperation = `
-      query GetOrder($id: ID!) {
-        order(id: $id) {
-          fulfillmentOrders(first: 1, query: "-status:closed") {
-            nodes {
-              id
-            }
-          }
-        }
-      }
-    `;
-    const {
-        data: {
-            order: {
-                fulfillmentOrders: {
-                    nodes: [{ id: fulfillmentOrderId }],
-                },
-            },
-        },
-    } = await client.request(getOrderOperation, {
-        variables: {
-            id: order_gid,
-        },
-    });
+    // nothing to process when:
+    // - no attachment
+    // - not yet paid
+    // - order closed
+    if (
+        countImageUrls(note_attributes) === 0 ||
+        financial_status !== "paid" ||
+        currentTags.includes("Entregue")
+    ) {
+        console.log("nothing to process", {
+            attachmentsCount: countImageUrls(note_attributes) === 0,
+            isPayed: financial_status !== "paid",
+            isClosed: currentTags.includes("Entregue"),
+        });
+
+        return res.status(200).send("Ok");
+    }
+
     console.log(
-        `FulfillmentOrder: "${fulfillmentOrderId}" for ID: "${order_gid}"`
+        `Sending "${order_number}" email(s) to "${contact_email}" (locale: "${customer_locale}" :: tags: "${tags}" :: hasMissingFiles: "${hasMissingFiles}")"`
     );
+
+    console.log("[start] sending email(s) to client");
+    await sendEmailsToClient(note_attributes, currentTags, nextTags);
+    console.log("[end] sending email(s) to client");
 
     // if hasMissingFiles update tags, otherwise update tags and fulfill order
     let bulkUpdate, data, errors;
-    if (hasMissingFiles) {
-        bulkUpdate = `
-          mutation BulkUpdate(
-            $input: OrderInput!
-          ) {
-            orderUpdate(input: $input) {
-              userErrors {
-                field
-                message
+    if (hasMissingFiles && nextTags.length > 0) {
+        if (nextTags.sort().join(",") !== currentTags.sort().join(",")) {
+            console.log("[start] updating order tags");
+            bulkUpdate = `
+              mutation BulkUpdate(
+                $input: OrderInput!
+              ) {
+                orderUpdate(input: $input) {
+                  userErrors {
+                    field
+                    message
+                  }
+                }
+              }
+            `;
+            ({ data, errors } = await client.request(bulkUpdate, {
+                variables: {
+                    input: {
+                        id: order_gid,
+                        tags: nextTags,
+                    },
+                },
+            }));
+            console.log("[end] updating order tags");
+        } else {
+            console.log("skipping tags update, no change");
+        }
+    } else {
+        console.log("[start] getting fulfillment id");
+        const getOrderOperation = `
+          query GetOrder($id: ID!) {
+            order(id: $id) {
+              fulfillmentOrders(first: 1, query: "-status:closed") {
+                nodes {
+                  id
+                }
               }
             }
           }
         `;
-        ({ data, errors } = await client.request(bulkUpdate, {
-            variables: {
-                input: {
-                    id: order_gid,
-                    tags: nextTags,
-                },
+        const {
+            data: {
+                order: { fulfillmentOrders },
             },
-        }));
-    } else {
+        } = await client.request(getOrderOperation, {
+            variables: {
+                id: order_gid,
+            },
+        });
+        const { id: fulfillmentOrderId } = fulfillmentOrders.nodes[0] ?? {};
+        console.log("[end] getting fulfillment id");
+        console.log(
+            `FulfillmentOrder: "${fulfillmentOrderId}" for ID: "${order_gid}"`
+        );
+
         // remove notification and timer tags as the order is now processed
         const filteredTags = currentTags.filter(
             (tag) =>
@@ -233,7 +256,11 @@ export default async (req, res) => {
                 !["notification", "notified"].includes(tag)
         );
         nextTags = [...filteredTags, "Entregue"];
+        console.log(
+            `Computed next tags: ${nextTags} (original: ${currentTags})`
+        );
 
+        console.log("[start] updating order tags and fulfillment");
         bulkUpdate = `
           mutation BulkUpdate(
             $input: OrderInput!
@@ -268,6 +295,7 @@ export default async (req, res) => {
                 },
             },
         }));
+        console.log("[end] updating order tags and fulfillment");
     }
 
     if (
@@ -316,7 +344,7 @@ export default async (req, res) => {
 };
 
 export const config = {
-  api: {
-    bodyParser: false,
-  },
-}
+    api: {
+        bodyParser: false,
+    },
+};
