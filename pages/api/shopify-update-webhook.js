@@ -356,7 +356,7 @@ export default async (req, res) => {
             });
         }
     } else {
-        return res.status(500).send("Error");
+        return res.status(500).send("Unknown Error");
     }
 
     res.status(200).send("Ok");
