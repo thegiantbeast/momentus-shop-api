@@ -226,7 +226,7 @@ export default async (req, res) => {
                 variables: {
                     input: {
                         id: order_gid,
-                        tags: [...currentTags, nextTags],
+                        tags: [...currentTags, ...nextTags],
                     },
                 },
             }));
