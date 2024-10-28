@@ -109,7 +109,7 @@ export default async (req, res) => {
         (acc, line) => acc + line.quantity,
         0
     );
-    const hasMissingFiles = totalOrderCount < countImageUrls(note_attributes);
+    const hasMissingFiles = countImageUrls(note_attributes) < totalOrderCount;
     let nextTags = [];
 
     console.log(line_items, note_attributes);
