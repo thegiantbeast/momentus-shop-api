@@ -65,8 +65,12 @@ async function addNotificationTimer(order_gid, currentTags) {
     }
 }
 
-async function sendEmailsToClient(note_attributes, currentTags, nextTags) {
-    const lang = customer_locale === "pt-PT" ? "pt" : "en";
+async function sendEmailsToClient(
+    note_attributes,
+    lang,
+    currentTags,
+    nextTags
+) {
     const to = isDebug ? toEmail : contact_email;
     const bcc = !isDebug ? toEmail : undefined;
     const subject = `${emailTemplates[lang].subject} ${order_number} ${
@@ -142,6 +146,7 @@ export default async (req, res) => {
         customer_locale,
         financial_status,
     } = JSON.parse(body);
+    const lang = customer_locale === "pt-PT" ? "pt" : "en";
     const currentTags = tags.split(", ");
     const totalOrderCount = line_items.reduce(
         (acc, line) => acc + line.quantity,
@@ -188,7 +193,7 @@ export default async (req, res) => {
     );
 
     console.log("[start] sending email(s) to client");
-    await sendEmailsToClient(note_attributes, currentTags, nextTags);
+    await sendEmailsToClient(note_attributes, lang, currentTags, nextTags);
     console.log("[end] sending email(s) to client");
 
     // if hasMissingFiles update tags, otherwise update tags and fulfill order
