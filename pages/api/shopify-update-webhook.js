@@ -36,6 +36,11 @@ export default async (req, res) => {
     const lang = customer_locale === "pt-PT" ? "pt" : "en";
     const currentTags = tags.split(", ");
 
+    if (order_gid == "1221") {
+        console.log("#1211 received, returning 200 OK");
+        return res.status(200).send("Ok");
+    }
+
     console.log(`Order Update hook for ${order_number}`);
 
     // add notification and timer (now + 15min) tags when is paid but no file attached
