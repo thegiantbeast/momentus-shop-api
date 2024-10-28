@@ -66,6 +66,7 @@ async function addNotificationTimer(order_gid, currentTags) {
 }
 
 async function sendEmailsToClient(
+    contact_email,
     note_attributes,
     lang,
     currentTags,
@@ -193,7 +194,13 @@ export default async (req, res) => {
     );
 
     console.log("[start] sending email(s) to client");
-    await sendEmailsToClient(note_attributes, lang, currentTags, nextTags);
+    await sendEmailsToClient(
+        contact_email,
+        note_attributes,
+        lang,
+        currentTags,
+        nextTags
+    );
     console.log("[end] sending email(s) to client");
 
     // if hasMissingFiles update tags, otherwise update tags and fulfill order
