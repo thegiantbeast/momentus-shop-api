@@ -211,9 +211,7 @@ export default async (req, res) => {
                 !tag.startsWith("sent:img:") &&
                 !["notification", "notified"].includes(tag)
         );
-        nextTags.push(...filteredTags, "Entregue");
-
-        console.log(`nextTags: ${nextTags}`);
+        nextTags = [...filteredTags, "Entregue"];
 
         bulkUpdate = `
           mutation BulkUpdate(
