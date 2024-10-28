@@ -157,6 +157,10 @@ export default async (req, res) => {
     const hasMissingFiles = countImageUrls(note_attributes) < totalOrderCount;
     let nextTags = [];
 
+    if (order_number === "#1212") {
+        return res.status(200).send("Ok");
+    }
+
     console.log(`Order Update hook for ${order_number}`);
 
     // add notification and timer (now + 15min) tags when is paid but no file attached
