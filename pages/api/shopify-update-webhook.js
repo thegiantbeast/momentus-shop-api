@@ -208,6 +208,8 @@ export default async (req, res) => {
         );
         nextTags.push(...filteredTags, "Entregue");
 
+        console.log(`nextTags: ${nextTags}`);
+
         bulkUpdate = `
           mutation BulkUpdate(
             $input: OrderInput!
@@ -283,6 +285,12 @@ export default async (req, res) => {
             });
         }
     } else {
+        console.log(
+            "errors:",
+            data?.orderUpdate?.userErrors,
+            data?.fulfillmentCreateV2?.userErrors,
+            errors
+        );
         return res.status(500).send("Error");
     }
 
