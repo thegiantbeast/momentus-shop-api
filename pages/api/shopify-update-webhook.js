@@ -336,8 +336,10 @@ export default async (req, res) => {
         return res.status(200).send("Ok");
     }
 
-    if (hasMissingFiles && !errors) {
-        console.log("Shopify tags updated");
+    if (hasMissingFiles && nextTags.length > 0 && !errors) {
+        if (nextTags.sort().join(",") !== currentTags.sort().join(",")) {
+            console.log("Shopify tags updated");
+        }
     } else if (!hasMissingFiles && !errors) {
         console.log("Shopify tags and fulfillment updated");
 
