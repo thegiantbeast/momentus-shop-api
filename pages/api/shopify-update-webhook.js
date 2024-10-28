@@ -21,6 +21,13 @@ function getShortFileName(filename) {
     return `${parts[0]}-${[parts[parts.length - 1]]}`;
 }
 
+function countImageUrls(note_attributes) {
+    return note_attributes.reduce(
+        (acc, attr) => acc + (attr.value.length > 0 ? 1 : 0),
+        0
+    );
+}
+
 export default async (req, res) => {
     const body = (await buffer(req)).toString();
     const {
@@ -45,7 +52,7 @@ export default async (req, res) => {
 
     // add notification and timer (now + 15min) tags when is paid but no file attached
     if (
-        !note_attributes?.[0]?.value &&
+        countImageUrls(note_attributes) === 0 &&
         financial_status === "paid" &&
         !currentTags.includes("notification")
     ) {
@@ -86,7 +93,7 @@ export default async (req, res) => {
     // - email already sent
     // - not yet paid
     if (
-        !note_attributes?.[0]?.value ||
+        countImageUrls(note_attributes) === 0 ||
         currentTags.includes("Entregue") ||
         financial_status !== "paid"
     ) {
@@ -102,7 +109,7 @@ export default async (req, res) => {
         (acc, line) => acc + line.quantity,
         0
     );
-    const hasMissingFiles = totalOrderCount < note_attributes.length;
+    const hasMissingFiles = totalOrderCount < countImageUrls(note_attributes);
     let nextTags = [];
 
     console.log(line_items, note_attributes);
@@ -111,6 +118,11 @@ export default async (req, res) => {
     );
 
     for (const [index, img] of note_attributes.entries()) {
+        if (!img.value) {
+            console.log(`skipping email - no url yet for (${img.name})`);
+            continue;
+        }
+
         const emailParts =
             note_attributes.length === 1
                 ? ""
@@ -119,7 +131,10 @@ export default async (req, res) => {
         const fileParts = note_attributes.length === 1 ? "" : `_${index + 1}`;
 
         // file already sent, skip it
-        if (currentTags.includes(`sent:img:${imgName}`)) continue;
+        if (currentTags.includes(`sent:img:${imgName}`)) {
+            console.log(`skipping email - it was already sent (${img.name})`);
+            continue;
+        }
 
         const email = await transport.sendMail({
             from: fromEmail,
