@@ -105,8 +105,9 @@ export default async (req, res) => {
     const hasMissingFiles = totalOrderCount < note_attributes.length;
     let nextTags = [];
 
+    console.log(line_items, note_attributes);
     console.log(
-        `Send "${order_number}" email to "${contact_email}" (locale: "${customer_locale}" :: tags: "${tags}") with "${note_attributes?.[0]?.value}"`
+        `Send "${order_number}" email to "${contact_email}" (locale: "${customer_locale}" :: tags: "${tags}" :: hasMissingFiles: "${hasMissingFiles}") with "${note_attributes?.[0]?.value}"`
     );
 
     for (const [index, img] of note_attributes.entries()) {
