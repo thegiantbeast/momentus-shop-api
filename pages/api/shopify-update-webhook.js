@@ -359,6 +359,7 @@ export default async (req, res) => {
         return res.status(500).send("Unknown Error");
     }
 
+    console.log("Order processed successfully!");
     res.status(200).send("Ok");
 };
 
