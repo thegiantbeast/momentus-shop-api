@@ -66,6 +66,7 @@ async function addNotificationTimer(order_gid, currentTags) {
 }
 
 async function sendEmailsToClient(
+    order_number,
     contact_email,
     note_attributes,
     lang,
@@ -195,6 +196,7 @@ export default async (req, res) => {
 
     console.log("[start] sending email(s) to client");
     await sendEmailsToClient(
+        order_number,
         contact_email,
         note_attributes,
         lang,
