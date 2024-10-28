@@ -336,8 +336,11 @@ export default async (req, res) => {
         return res.status(200).send("Ok");
     }
 
-    if (hasMissingFiles && nextTags.length > 0 && !errors) {
-        if (nextTags.sort().join(",") !== currentTags.sort().join(",")) {
+    if (hasMissingFiles && !errors) {
+        if (
+            nextTags.length > 0 &&
+            nextTags.sort().join(",") !== currentTags.sort().join(",")
+        ) {
             console.log("Shopify tags updated");
         }
     } else if (!hasMissingFiles && !errors) {
