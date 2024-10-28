@@ -22,6 +22,7 @@ export default async (req, res) => {
         admin_graphql_api_id: order_gid,
         contact_email,
         name: order_number,
+        line_items,
         note_attributes,
         tags,
         customer_locale,
@@ -30,7 +31,7 @@ export default async (req, res) => {
     const lang = customer_locale === "pt-PT" ? "pt" : "en";
     const currentTags = tags.split(", ");
 
-    console.log(`Received hook for ${order_number}`);
+    console.log(`Order Update hook for ${order_number}`);
 
     // add notification and timer (now + 15min) tags when is paid but no file attached
     if (
@@ -42,15 +43,15 @@ export default async (req, res) => {
         const timer = new Date().getTime() + timeout;
         const nextTags = [...currentTags, "notification", `timer:${timer}`];
         const orderUpdate = `
-      mutation OrderUpdate($input: OrderInput!) {
-        orderUpdate(input: $input) {
-          userErrors {
-            field
-            message
+          mutation OrderUpdate($input: OrderInput!) {
+            orderUpdate(input: $input) {
+              userErrors {
+                field
+                message
+              }
+            }
           }
-        }
-      }
-    `;
+        `;
         const { data, errors } = await client.request(orderUpdate, {
             variables: {
                 input: {
@@ -78,25 +79,36 @@ export default async (req, res) => {
         !note_attributes?.[0]?.value ||
         currentTags.includes("Entregue") ||
         financial_status !== "paid"
-    )
+    ) {
         return res.status(200).send("Ok");
-
-    console.log(
-        `Send "${order_number}" email to "${contact_email}" (locale: "${customer_locale}" :: tags: "${tags}") with "${note_attributes?.[0]?.value}"`
-    );
+    }
 
     const to = isDebug ? toEmail : contact_email;
     const bcc = !isDebug ? toEmail : undefined;
     const subject = `${emailTemplates[lang].subject} ${order_number} ${
         isDebug ? `(to: ${contact_email})` : ""
     }`.trimEnd();
+    const totalOrderCount = line_items.reduce(
+        (acc, line) => acc + line.quantity,
+        0
+    );
+    const hasMissingFiles = totalOrderCount < note_attributes.length;
+    let nextTags = [];
+
+    console.log(
+        `Send "${order_number}" email to "${contact_email}" (locale: "${customer_locale}" :: tags: "${tags}") with "${note_attributes?.[0]?.value}"`
+    );
 
     for (const [index, img] of note_attributes.entries()) {
         const emailParts =
             note_attributes.length === 1
                 ? ""
                 : `(${index + 1}/${note_attributes.length})`;
+        const imgName = img.value.split("/").pop();
         const fileParts = note_attributes.length === 1 ? "" : `_${index + 1}`;
+
+        // file already sent, skip it
+        if (currentTags.includes(`sent:img:${imgName}`)) continue;
 
         const email = await transport.sendMail({
             from: fromEmail,
@@ -129,20 +141,23 @@ export default async (req, res) => {
             return res.status(200).send("Ok");
         }
 
+        // update `nextTags` to add the file sent in order to be skipped next time
+        nextTags.push(`sent:img:${imgName}`);
+
         console.log(`Email sent: ${email.messageId}`);
     }
 
     const getOrderOperation = `
-    query GetOrder($id: ID!) {
-      order(id: $id) {
-        fulfillmentOrders(first: 1, query: "-status:closed") {
-          nodes {
-            id
+      query GetOrder($id: ID!) {
+        order(id: $id) {
+          fulfillmentOrders(first: 1, query: "-status:closed") {
+            nodes {
+              id
+            }
           }
         }
       }
-    }
-  `;
+    `;
     const {
         data: {
             order: {
@@ -160,49 +175,74 @@ export default async (req, res) => {
         `FulfillmentOrder: "${fulfillmentOrderId}" for ID: "${order_gid}"`
     );
 
-    // remove notification and timer tags as the order is now processed
-    const isNotified = currentTags.includes("notified");
-    const filteredTags = currentTags.filter(
-        (tag) =>
-            !tag.startsWith("timer:") &&
-            !["notification", "notified"].includes(tag)
-    );
-    const nextTags = [...filteredTags, "Entregue"];
+    // if hasMissingFiles update tags, otherwise update tags and fulfill order
+    let bulkUpdate, data, errors;
+    if (hasMissingFiles) {
+        bulkUpdate = `
+          mutation BulkUpdate(
+            $input: OrderInput!
+          ) {
+            orderUpdate(input: $input) {
+              userErrors {
+                field
+                message
+              }
+            }
+          }
+        `;
+        ({ data, errors } = await client.request(bulkUpdate, {
+            variables: {
+                input: {
+                    id: order_gid,
+                    tags: nextTags,
+                },
+            },
+        }));
+    } else {
+        // remove notification and timer tags as the order is now processed
+        const filteredTags = currentTags.filter(
+            (tag) =>
+                !tag.startsWith("timer:") &&
+                !tag.startsWith("sent:img:") &&
+                !["notification", "notified"].includes(tag)
+        );
+        nextTags.push(...filteredTags, "Entregue");
 
-    const bulkUpdate = `
-    mutation BulkUpdate(
-      $input: OrderInput!
-      $fulfillment: FulfillmentV2Input!
-    ) {
-      orderUpdate(input: $input) {
-        userErrors {
-          field
-          message
-        }
-      }
-      fulfillmentCreateV2(fulfillment: $fulfillment) {
-        userErrors {
-          field
-          message
-        }
-      }
+        bulkUpdate = `
+          mutation BulkUpdate(
+            $input: OrderInput!
+            $fulfillment: FulfillmentV2Input!
+          ) {
+            orderUpdate(input: $input) {
+              userErrors {
+                field
+                message
+              }
+            }
+            fulfillmentCreateV2(fulfillment: $fulfillment) {
+              userErrors {
+                field
+                message
+              }
+            }
+          }
+        `;
+        ({ data, errors } = await client.request(bulkUpdate, {
+            variables: {
+                input: {
+                    id: order_gid,
+                    tags: nextTags,
+                },
+                fulfillment: {
+                    lineItemsByFulfillmentOrder: [
+                        {
+                            fulfillmentOrderId,
+                        },
+                    ],
+                },
+            },
+        }));
     }
-  `;
-    const { data, errors } = await client.request(bulkUpdate, {
-        variables: {
-            input: {
-                id: order_gid,
-                tags: nextTags,
-            },
-            fulfillment: {
-                lineItemsByFulfillmentOrder: [
-                    {
-                        fulfillmentOrderId,
-                    },
-                ],
-            },
-        },
-    });
 
     if (
         data?.orderUpdate?.userErrors.length ||
@@ -210,33 +250,40 @@ export default async (req, res) => {
         errors
     ) {
         const errorOutput = `
-      GraphQL errors:
-      ${JSON.stringify(data, null, " ")}
+          GraphQL errors:
+          ${JSON.stringify(data, null, " ")}
 
-      General Errors:
-      ${JSON.stringify(errors, null, " ")}
-    `;
+          General Errors:
+          ${JSON.stringify(errors, null, " ")}
+        `;
         console.log(errorOutput);
 
         await transport.sendMail({
             from: fromEmail,
             to: toEmail,
-            subject: `[ALERTA] Order ${order_number}: Houve um erro ao actualizar a order`,
+            subject: `[ALERTA] Order ${order_number}: Houve um erro ao actualizar a order (hasMissingFiles: ${hasMissingFiles})`,
             text: errorOutput,
         });
 
         return res.status(200).send("Ok");
     }
 
-    console.log("Shopify tags and fulfillment updated");
+    if (hasMissingFiles && !errors) {
+        console.log("Shopify tags updated");
+    } else if (!hasMissingFiles && !errors) {
+        console.log("Shopify tags and fulfillment updated");
 
-    // send an email stating that the order is now processed
-    if (isNotified) {
-        await transport.sendMail({
-            from: fromEmail,
-            to: toEmail,
-            subject: `[ALERTA] Order ${order_number}: A order já está resolvida`,
-        });
+        // send an email stating that the order is now processed
+        const isNotified = currentTags.includes("notified");
+        if (isNotified) {
+            await transport.sendMail({
+                from: fromEmail,
+                to: toEmail,
+                subject: `[ALERTA] Order ${order_number}: A order já está resolvida`,
+            });
+        }
+    } else {
+        return res.status(500).send("Error");
     }
 
     res.status(200).send("Ok");
