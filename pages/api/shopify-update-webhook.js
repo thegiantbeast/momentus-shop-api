@@ -16,6 +16,11 @@ const client = createAdminApiClient({
 
 const transport = nodemailer.createTransport(JSON.parse(process.env.SMTP_CONNECTION))
 
+function getShortFileName(filename) {
+    const parts = filename.split("/").pop().replace(".png", "").split("-");
+    return `${parts[0]}-${[parts[parts.length - 1]]}`;
+}
+
 export default async (req, res) => {
     const body = (await buffer(req)).toString();
     const {
@@ -104,7 +109,7 @@ export default async (req, res) => {
             note_attributes.length === 1
                 ? ""
                 : `(${index + 1}/${note_attributes.length})`;
-        const imgName = img.value.split("/").pop();
+        const imgName = getShortFileName(img.value);
         const fileParts = note_attributes.length === 1 ? "" : `_${index + 1}`;
 
         // file already sent, skip it
@@ -285,17 +290,11 @@ export default async (req, res) => {
             });
         }
     } else {
-        console.log(
-            "errors:",
-            data?.orderUpdate?.userErrors,
-            data?.fulfillmentCreateV2?.userErrors,
-            errors
-        );
         return res.status(500).send("Error");
     }
 
     res.status(200).send("Ok");
-}
+};
 
 export const config = {
   api: {
