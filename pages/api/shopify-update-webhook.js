@@ -234,7 +234,7 @@ export default async (req, res) => {
         } else {
             console.log("skipping tags update, no change");
         }
-    } else {
+    } else if (!hasMissingFiles) {
         console.log("[start] getting fulfillment id");
         const getOrderOperation = `
           query GetOrder($id: ID!) {
