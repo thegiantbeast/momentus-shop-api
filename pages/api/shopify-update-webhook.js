@@ -36,7 +36,7 @@ export default async (req, res) => {
     const lang = customer_locale === "pt-PT" ? "pt" : "en";
     const currentTags = tags.split(", ");
 
-    if (order_gid == "1221") {
+    if (order_gid == "1211") {
         console.log("#1211 received, returning 200 OK");
         return res.status(200).send("Ok");
     }
