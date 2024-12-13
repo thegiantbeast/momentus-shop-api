@@ -20,6 +20,15 @@ const transport = nodemailer.createTransport(
     JSON.parse(process.env.SMTP_CONNECTION)
 );
 
+function isValidURL(string) {
+    try {
+        new URL(string);
+        return true; // If no error, it's a valid URL
+    } catch (e) {
+        return false; // If error, it's not a valid URL
+    }
+}
+
 function getShortFileName(filename) {
     const parts = filename.split("/").pop().replace(".png", "").split("-");
     return `${parts[0]}-${[parts[parts.length - 1]]}`;
@@ -27,7 +36,7 @@ function getShortFileName(filename) {
 
 function countImageUrls(note_attributes) {
     return note_attributes.reduce(
-        (acc, attr) => acc + (attr.value.length > 0 ? 1 : 0),
+        (acc, attr) => acc + (attr.value.length > 0 && isValidURL(attr.value) ? 1 : 0),
         0
     );
 }
@@ -80,6 +89,11 @@ async function sendEmailsToClient(
     }`.trimEnd();
 
     for (const [index, img] of note_attributes.entries()) {
+        if (!isValidURL(img.value)) {
+            console.log(`skipping email - note attribute is not a valid url (${img.value})`);
+            continue;
+        }
+
         if (!img.value) {
             console.log(`skipping email - no url yet for (${img.name})`);
             continue;
