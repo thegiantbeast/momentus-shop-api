@@ -100,7 +100,7 @@ async function sendEmailsToClient(
         }
 
         const emailParts =
-            note_attributes.length === 1
+            countImageUrls(note_attributes) === 1
                 ? ""
                 : `(${index + 1}/${note_attributes.length})`;
         const imgName = getShortFileName(img.value);
