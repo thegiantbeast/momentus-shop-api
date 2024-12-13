@@ -99,12 +99,13 @@ async function sendEmailsToClient(
             continue;
         }
 
+        const noteAttributesCount = countImageUrls(note_attributes);
         const emailParts =
-            countImageUrls(note_attributes) === 1
+        noteAttributesCount === 1
                 ? ""
-                : `(${index + 1}/${note_attributes.length})`;
+                : `(${index + 1}/${noteAttributesCount})`;
         const imgName = getShortFileName(img.value);
-        const fileParts = note_attributes.length === 1 ? "" : `_${index + 1}`;
+        const fileParts = noteAttributesCount === 1 ? "" : `_${index + 1}`;
 
         // file already sent, skip it
         if (currentTags.includes(`sent:img:${imgName}`)) {
@@ -288,42 +289,44 @@ export default async (req, res) => {
             `Computed next tags: ${nextTags} (original: ${currentTags})`
         );
 
-        console.log("[start] updating order tags and fulfillment");
-        bulkUpdate = `
-          mutation BulkUpdate(
-            $input: OrderInput!
-            $fulfillment: FulfillmentV2Input!
-          ) {
-            orderUpdate(input: $input) {
-              userErrors {
-                field
-                message
+        if (fulfillmentOrderId !== undefined) {
+            console.log("[start] updating order tags and fulfillment");
+            bulkUpdate = `
+              mutation BulkUpdate(
+                $input: OrderInput!
+                $fulfillment: FulfillmentV2Input!
+              ) {
+                orderUpdate(input: $input) {
+                  userErrors {
+                    field
+                    message
+                  }
+                }
+                fulfillmentCreateV2(fulfillment: $fulfillment) {
+                  userErrors {
+                    field
+                    message
+                  }
+                }
               }
-            }
-            fulfillmentCreateV2(fulfillment: $fulfillment) {
-              userErrors {
-                field
-                message
-              }
-            }
-          }
-        `;
-        ({ data, errors } = await client.request(bulkUpdate, {
-            variables: {
-                input: {
-                    id: order_gid,
-                    tags: nextTags,
+            `;
+            ({ data, errors } = await client.request(bulkUpdate, {
+                variables: {
+                    input: {
+                        id: order_gid,
+                        tags: nextTags,
+                    },
+                    fulfillment: {
+                        lineItemsByFulfillmentOrder: [
+                            {
+                                fulfillmentOrderId,
+                            },
+                        ],
+                    },
                 },
-                fulfillment: {
-                    lineItemsByFulfillmentOrder: [
-                        {
-                            fulfillmentOrderId,
-                        },
-                    ],
-                },
-            },
-        }));
-        console.log("[end] updating order tags and fulfillment");
+            }));
+            console.log("[end] updating order tags and fulfillment");
+        }
     }
 
     if (
